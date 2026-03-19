@@ -1,0 +1,45 @@
+name: promec_gti
+description: Sistema de Gestão de Oficina Mecânica
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI e Design
+  cupertino_icons: ^1.0.2
+  google_fonts: ^6.1.0
+  
+  # Navegação
+  go_router: ^13.0.0
+  
+  # Estado
+  provider: ^6.1.1
+  
+  # Ícones
+  lucide_icons_flutter: ^1.0.0
+  
+  # Formulários
+  flutter_form_builder: ^10.3.0+2
+  form_builder_validators: ^11.3.0
+  
+  # HTTP (para futuras integrações)
+  http: ^1.1.0
+  
+  # Storage Local
+  shared_preferences: ^2.2.2
+  
+  # Notificações
+  fluttertoast: ^8.2.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
