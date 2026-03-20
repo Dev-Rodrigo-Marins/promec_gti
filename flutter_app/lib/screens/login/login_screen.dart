@@ -47,6 +47,20 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _loginGoogle() async {
+    setState(() => _isLoading = true);
+    final authProvider = context.read<AuthProvider>();
+    final sucesso = await authProvider.loginComGoogle(_tipoSelecionado!);
+    setState(() => _isLoading = false);
+
+    if (sucesso && mounted) {
+      final rota = _tipoSelecionado == TipoUsuario.cliente
+          ? '/cliente'
+          : '/oficina';
+      context.go(rota);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_tipoSelecionado == null) {
@@ -388,6 +402,30 @@ class _LoginScreenState extends State<LoginScreen> {
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
+                              ),
+                              const SizedBox(height: 16),
+                              // Botão Google
+                              OutlinedButton.icon(
+                                onPressed: _isLoading ? null : _loginGoogle,
+                                icon: Image.asset(
+                                  'assets/images/google_logo.png',
+                                  height: 24,
+                                  width: 24,
+                                ),
+                                label: const Text(
+                                  'Entrar com Google',
+                                  style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  side: const BorderSide(color: Colors.grey),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
