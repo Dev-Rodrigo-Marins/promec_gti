@@ -1,0 +1,610 @@
+-- ================================================
+-- PROMEC-GTI - QUERIES DE EXEMPLO
+-- Consultas SQL úteis para o sistema
+-- ================================================
+
+-- ================================================
+-- 1. AUTENTICAÇÃO E USUÁRIOS
+-- ================================================
+
+-- Login de usuário
+SELECT 
+    u.id,
+    u.email,
+    u.tipo_usuario,
+    u.nome_completo,
+    CASE 
+        WHEN u.tipo_usuario = 'oficina' THEN o.id
+        WHEN u.tipo_usuario = 'cliente' THEN c.id
+    END as perfil_id
+FROM usuarios u
+LEFT JOIN oficinas o ON u.id = o.usuario_id
+LEFT JOIN clientes c ON u.id = c.usuario_id
+WHERE u.email = 'usuario@email.com' 
+    AND u.senha_hash = 'hash_da_senha'
+    AND u.ativo = true;
+
+-- Registrar último acesso
+UPDATE usuarios
+SET ultimo_acesso = CURRENT_TIMESTAMP
+WHERE id = 'usuario_id';
+
+-- ================================================
+-- 2. DASHBOARD DA OFICINA
+-- ================================================
+
+-- Estatísticas do dia para a oficina
+SELECT 
+    COUNT(DISTINCT a.id) FILTER (WHERE a.data_agendamento = CURRENT_DATE) as agendamentos_hoje,
+    COUNT(DISTINCT o.id) FILTER (WHERE DATE(o.data_criacao) = CURRENT_DATE) as orcamentos_hoje,
+    COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'em_atendimento') as em_atendimento,
+    COALESCE(SUM(h.valor_total) FILTER (WHERE DATE(h.data_servico) = CURRENT_DATE), 0) as faturamento_hoje
+FROM oficinas ofi
+LEFT JOIN agendamentos a ON ofi.id = a.oficina_id
+LEFT JOIN orcamentos o ON ofi.id = o.oficina_id
+LEFT JOIN historico_manutencao h ON ofi.id = h.oficina_id
+WHERE ofi.id = 'oficina_id';
+
+-- Atividades recentes da oficina (últimas 10)
+SELECT 
+    'orcamento' as tipo,
+    orc.numero_orcamento as identificador,
+    'Novo orçamento criado' as descricao,
+    v.marca || ' ' || v.modelo || ' - ' || v.placa as detalhes,
+    orc.data_criacao as data
+FROM orcamentos orc
+JOIN veiculos v ON orc.veiculo_id = v.id
+WHERE orc.oficina_id = 'oficina_id'
+
+UNION ALL
+
+SELECT 
+    'agendamento' as tipo,
+    a.id::TEXT as identificador,
+    'Agendamento ' || a.status as descricao,
+    v.marca || ' ' || v.modelo || ' - ' || v.placa as detalhes,
+    a.data_criacao as data
+FROM agendamentos a
+JOIN veiculos v ON a.veiculo_id = v.id
+WHERE a.oficina_id = 'oficina_id'
+
+UNION ALL
+
+SELECT 
+    'veiculo' as tipo,
+    v.placa as identificador,
+    'Veículo cadastrado' as descricao,
+    v.marca || ' ' || v.modelo as detalhes,
+    v.data_cadastro as data
+FROM veiculos v
+JOIN clientes c ON v.cliente_id = c.id
+
+ORDER BY data DESC
+LIMIT 10;
+
+-- ================================================
+-- 3. VEÍCULOS
+-- ================================================
+
+-- Cadastrar novo veículo
+INSERT INTO veiculos (
+    cliente_id, placa, marca, modelo, ano, cor, 
+    km_atual, tipo_combustivel
+) VALUES (
+    'cliente_id', 'ABC-1234', 'Toyota', 'Corolla', 
+    2020, 'Prata', 45000, 'flex'
+) RETURNING id;
+
+-- Buscar veículo por placa
+SELECT 
+    v.*,
+    c.id as cliente_id,
+    u.nome_completo as cliente_nome,
+    u.telefone as cliente_telefone,
+    u.email as cliente_email,
+    (SELECT MAX(data_servico) FROM historico_manutencao WHERE veiculo_id = v.id) as ultima_manutencao
+FROM veiculos v
+JOIN clientes c ON v.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+WHERE v.placa ILIKE '%ABC-1234%';
+
+-- Atualizar quilometragem do veículo
+UPDATE veiculos
+SET km_atual = 50000,
+    data_atualizacao = CURRENT_TIMESTAMP
+WHERE id = 'veiculo_id';
+
+-- Veículos próximos da revisão (KM)
+SELECT 
+    v.id,
+    v.placa,
+    v.marca,
+    v.modelo,
+    v.km_atual,
+    v.km_proxima_revisao,
+    (v.km_proxima_revisao - v.km_atual) as km_restante,
+    u.nome_completo as cliente_nome,
+    u.telefone
+FROM veiculos v
+JOIN clientes c ON v.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+WHERE v.km_proxima_revisao IS NOT NULL
+    AND (v.km_proxima_revisao - v.km_atual) <= 1000
+    AND (v.km_proxima_revisao - v.km_atual) > 0
+ORDER BY km_restante ASC;
+
+-- ================================================
+-- 4. SERVIÇOS
+-- ================================================
+
+-- Listar serviços da oficina por categoria
+SELECT 
+    cs.nome as categoria,
+    s.id,
+    s.nome,
+    s.descricao,
+    s.valor_base,
+    s.tempo_estimado_minutos
+FROM servicos s
+JOIN categorias_servicos cs ON s.categoria_id = cs.id
+WHERE s.oficina_id = 'oficina_id'
+    AND s.ativo = true
+ORDER BY cs.nome, s.nome;
+
+-- Cadastrar novo serviço
+INSERT INTO servicos (
+    oficina_id, categoria_id, nome, descricao, 
+    valor_base, tempo_estimado_minutos
+) VALUES (
+    'oficina_id', 'categoria_id', 'Troca de óleo',
+    'Troca de óleo do motor e filtro',
+    150.00, 30
+) RETURNING id;
+
+-- ================================================
+-- 5. ORÇAMENTOS
+-- ================================================
+
+-- Criar novo orçamento
+WITH novo_orcamento AS (
+    INSERT INTO orcamentos (
+        numero_orcamento, oficina_id, cliente_id, veiculo_id,
+        status, observacoes, validade_dias
+    ) VALUES (
+        gerar_numero_orcamento(), 'oficina_id', 'cliente_id', 'veiculo_id',
+        'pendente', 'Observações do orçamento', 15
+    ) RETURNING id
+)
+INSERT INTO itens_orcamento (orcamento_id, servico_id, nome_servico, quantidade, valor_unitario, valor_total)
+SELECT 
+    no.id,
+    'servico_id_1',
+    'Troca de óleo',
+    1,
+    150.00,
+    150.00
+FROM novo_orcamento no;
+
+-- Listar orçamentos com filtros
+SELECT 
+    o.id,
+    o.numero_orcamento,
+    o.status,
+    o.valor_total,
+    o.data_criacao,
+    u.nome_completo as cliente_nome,
+    v.marca || ' ' || v.modelo as veiculo,
+    v.placa,
+    (SELECT COUNT(*) FROM itens_orcamento WHERE orcamento_id = o.id) as total_servicos
+FROM orcamentos o
+JOIN clientes c ON o.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+JOIN veiculos v ON o.veiculo_id = v.id
+WHERE o.oficina_id = 'oficina_id'
+    AND (o.status = 'pendente' OR 'todos' = 'todos') -- Filtro dinâmico
+    AND (o.data_criacao >= CURRENT_DATE - INTERVAL '30 days' OR true) -- Últimos 30 dias
+ORDER BY o.data_criacao DESC;
+
+-- Detalhes completos de um orçamento
+SELECT 
+    o.*,
+    u.nome_completo as cliente_nome,
+    u.telefone as cliente_telefone,
+    u.email as cliente_email,
+    v.marca,
+    v.modelo,
+    v.placa,
+    v.ano,
+    json_agg(
+        json_build_object(
+            'id', io.id,
+            'nome', io.nome_servico,
+            'descricao', io.descricao,
+            'quantidade', io.quantidade,
+            'valor_unitario', io.valor_unitario,
+            'valor_total', io.valor_total,
+            'tempo_estimado', io.tempo_estimado_minutos
+        )
+    ) as itens
+FROM orcamentos o
+JOIN clientes c ON o.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+JOIN veiculos v ON o.veiculo_id = v.id
+LEFT JOIN itens_orcamento io ON o.id = io.orcamento_id
+WHERE o.id = 'orcamento_id'
+GROUP BY o.id, u.nome_completo, u.telefone, u.email, v.marca, v.modelo, v.placa, v.ano;
+
+-- Atualizar status do orçamento
+UPDATE orcamentos
+SET status = 'aprovado',
+    data_resposta = CURRENT_TIMESTAMP
+WHERE id = 'orcamento_id';
+
+-- Calcular subtotal e total do orçamento
+UPDATE orcamentos
+SET subtotal = (
+        SELECT COALESCE(SUM(valor_total), 0)
+        FROM itens_orcamento
+        WHERE orcamento_id = 'orcamento_id'
+    ),
+    valor_total = (
+        SELECT COALESCE(SUM(valor_total), 0) - COALESCE(desconto, 0)
+        FROM itens_orcamento
+        WHERE orcamento_id = 'orcamento_id'
+    )
+WHERE id = 'orcamento_id';
+
+-- ================================================
+-- 6. AGENDAMENTOS
+-- ================================================
+
+-- Criar novo agendamento
+INSERT INTO agendamentos (
+    oficina_id, cliente_id, veiculo_id, orcamento_id,
+    data_agendamento, horario_inicio, servico_solicitado, observacoes
+) VALUES (
+    'oficina_id', 'cliente_id', 'veiculo_id', 'orcamento_id',
+    '2024-03-25', '09:00', 'Revisão completa', 'Cliente prefere manhã'
+) RETURNING id;
+
+-- Agendamentos do dia com detalhes
+SELECT 
+    a.id,
+    a.horario_inicio,
+    a.status,
+    u.nome_completo as cliente_nome,
+    u.telefone as cliente_telefone,
+    v.marca || ' ' || v.modelo as veiculo,
+    v.placa,
+    a.servico_solicitado,
+    a.observacoes
+FROM agendamentos a
+JOIN clientes c ON a.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+JOIN veiculos v ON a.veiculo_id = v.id
+WHERE a.oficina_id = 'oficina_id'
+    AND a.data_agendamento = CURRENT_DATE
+ORDER BY a.horario_inicio;
+
+-- Agendamentos por período e status
+SELECT 
+    a.id,
+    a.data_agendamento,
+    a.horario_inicio,
+    a.status,
+    u.nome_completo as cliente,
+    v.placa,
+    a.servico_solicitado
+FROM agendamentos a
+JOIN clientes c ON a.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+JOIN veiculos v ON a.veiculo_id = v.id
+WHERE a.oficina_id = 'oficina_id'
+    AND a.data_agendamento BETWEEN '2024-03-20' AND '2024-03-27'
+    AND (a.status = 'confirmado' OR 'todos' = 'todos')
+ORDER BY a.data_agendamento, a.horario_inicio;
+
+-- Atualizar status do agendamento
+UPDATE agendamentos
+SET status = 'em_atendimento',
+    data_inicio_atendimento = CURRENT_TIMESTAMP
+WHERE id = 'agendamento_id';
+
+-- Horários disponíveis em uma data
+SELECT h.horario
+FROM (
+    SELECT generate_series(
+        '08:00'::time,
+        '18:00'::time,
+        '1 hour'::interval
+    )::time as horario
+) h
+WHERE h.horario NOT IN (
+    SELECT horario_inicio
+    FROM agendamentos
+    WHERE oficina_id = 'oficina_id'
+        AND data_agendamento = '2024-03-25'
+        AND status NOT IN ('cancelado', 'concluido')
+)
+ORDER BY h.horario;
+
+-- ================================================
+-- 7. HISTÓRICO DE MANUTENÇÃO
+-- ================================================
+
+-- Registrar manutenção concluída
+WITH novo_historico AS (
+    INSERT INTO historico_manutencao (
+        veiculo_id, oficina_id, orcamento_id, agendamento_id,
+        tipo_servico, descricao, km_veiculo, valor_total,
+        data_servico, proxima_manutencao_km
+    ) VALUES (
+        'veiculo_id', 'oficina_id', 'orcamento_id', 'agendamento_id',
+        'Revisão completa', 'Revisão dos 50.000 km', 50000, 1250.00,
+        CURRENT_DATE, 60000
+    ) RETURNING id
+)
+INSERT INTO pecas_utilizadas (historico_id, nome_peca, quantidade, valor_unitario, valor_total)
+SELECT 
+    nh.id,
+    'Óleo sintético 5W30',
+    4,
+    25.00,
+    100.00
+FROM novo_historico nh;
+
+-- Histórico completo de um veículo
+SELECT 
+    h.id,
+    h.data_servico,
+    h.tipo_servico,
+    h.descricao,
+    h.km_veiculo,
+    h.valor_total,
+    o.nome_fantasia as oficina,
+    (
+        SELECT json_agg(
+            json_build_object(
+                'nome', p.nome_peca,
+                'quantidade', p.quantidade,
+                'valor', p.valor_total
+            )
+        )
+        FROM pecas_utilizadas p
+        WHERE p.historico_id = h.id
+    ) as pecas
+FROM historico_manutencao h
+JOIN oficinas o ON h.oficina_id = o.id
+WHERE h.veiculo_id = 'veiculo_id'
+ORDER BY h.data_servico DESC;
+
+-- Última manutenção do veículo
+SELECT 
+    h.*,
+    o.nome_fantasia as oficina
+FROM historico_manutencao h
+JOIN oficinas o ON h.oficina_id = o.id
+WHERE h.veiculo_id = 'veiculo_id'
+ORDER BY h.data_servico DESC
+LIMIT 1;
+
+-- ================================================
+-- 8. ALERTAS DE MANUTENÇÃO
+-- ================================================
+
+-- Criar alerta de manutenção por KM
+INSERT INTO alertas_manutencao (
+    veiculo_id, tipo_alerta, titulo, descricao,
+    km_alerta, prioridade
+) VALUES (
+    'veiculo_id', 'km', 'Revisão dos 60.000 km',
+    'Seu veículo está próximo da revisão programada',
+    60000, 'alta'
+);
+
+-- Listar alertas ativos do cliente
+SELECT 
+    a.id,
+    a.titulo,
+    a.descricao,
+    a.tipo_alerta,
+    a.km_alerta,
+    a.data_alerta,
+    a.prioridade,
+    v.placa,
+    v.marca || ' ' || v.modelo as veiculo,
+    v.km_atual,
+    CASE 
+        WHEN a.tipo_alerta = 'km' THEN (a.km_alerta - v.km_atual)
+        ELSE NULL
+    END as km_restante
+FROM alertas_manutencao a
+JOIN veiculos v ON a.veiculo_id = v.id
+WHERE v.cliente_id = 'cliente_id'
+    AND a.status = 'ativo'
+ORDER BY a.prioridade DESC, a.data_criacao DESC;
+
+-- Marcar alerta como visualizado
+UPDATE alertas_manutencao
+SET status = 'visualizado',
+    data_visualizacao = CURRENT_TIMESTAMP
+WHERE id = 'alerta_id';
+
+-- ================================================
+-- 9. SOLICITAÇÕES DE GUINCHO
+-- ================================================
+
+-- Criar solicitação de guincho
+INSERT INTO solicitacoes_guincho (
+    cliente_id, veiculo_id, oficina_destino_id,
+    localizacao_origem, latitude_origem, longitude_origem,
+    descricao_problema
+) VALUES (
+    'cliente_id', 'veiculo_id', 'oficina_id',
+    'Av. Paulista, 1000 - São Paulo/SP', -23.561414, -46.655882,
+    'Veículo não liga, possível problema na bateria'
+) RETURNING id;
+
+-- Listar solicitações de guincho do cliente
+SELECT 
+    sg.*,
+    v.marca || ' ' || v.modelo as veiculo,
+    v.placa,
+    o.nome_fantasia as oficina_destino
+FROM solicitacoes_guincho sg
+JOIN veiculos v ON sg.veiculo_id = v.id
+LEFT JOIN oficinas o ON sg.oficina_destino_id = o.id
+WHERE sg.cliente_id = 'cliente_id'
+ORDER BY sg.data_solicitacao DESC;
+
+-- ================================================
+-- 10. OFICINAS CREDENCIADAS
+-- ================================================
+
+-- Buscar oficinas próximas (exemplo simplificado)
+SELECT 
+    o.id,
+    o.nome_fantasia,
+    o.endereco,
+    o.cidade,
+    o.telefone,
+    o.avaliacao_media,
+    o.total_avaliacoes,
+    o.servicos_oferecidos,
+    -- Cálculo simplificado de distância (em produção usar PostGIS)
+    SQRT(
+        POW(69.1 * (o.latitude - -23.561414), 2) +
+        POW(69.1 * (-46.655882 - o.longitude) * COS(o.latitude / 57.3), 2)
+    ) * 1.60934 as distancia_km
+FROM oficinas o
+WHERE o.credenciada = true
+    AND o.ativo = true
+ORDER BY distancia_km
+LIMIT 20;
+
+-- Detalhes de uma oficina específica
+SELECT 
+    o.*,
+    u.telefone,
+    u.email,
+    COUNT(DISTINCT a.id) as total_atendimentos,
+    AVG(av.nota) as media_avaliacoes
+FROM oficinas o
+JOIN usuarios u ON o.usuario_id = u.id
+LEFT JOIN agendamentos a ON o.id = a.oficina_id AND a.status = 'concluido'
+LEFT JOIN avaliacoes av ON o.id = av.oficina_id
+WHERE o.id = 'oficina_id'
+GROUP BY o.id, u.telefone, u.email;
+
+-- ================================================
+-- 11. AVALIAÇÕES
+-- ================================================
+
+-- Criar avaliação
+INSERT INTO avaliacoes (
+    oficina_id, cliente_id, agendamento_id,
+    nota, comentario
+) VALUES (
+    'oficina_id', 'cliente_id', 'agendamento_id',
+    5, 'Excelente atendimento, serviço muito bem feito!'
+);
+
+-- Listar avaliações de uma oficina
+SELECT 
+    a.nota,
+    a.comentario,
+    a.data_avaliacao,
+    u.nome_completo as cliente,
+    ag.servico_solicitado
+FROM avaliacoes a
+JOIN clientes c ON a.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+LEFT JOIN agendamentos ag ON a.agendamento_id = ag.id
+WHERE a.oficina_id = 'oficina_id'
+ORDER BY a.data_avaliacao DESC;
+
+-- ================================================
+-- 12. NOTIFICAÇÕES
+-- ================================================
+
+-- Criar notificação
+INSERT INTO notificacoes (
+    usuario_id, tipo, titulo, mensagem, dados_extras
+) VALUES (
+    'usuario_id', 'orcamento_aprovado', 'Orçamento Aprovado!',
+    'Seu orçamento #ORC-2024-0001 foi aprovado pelo cliente',
+    '{"orcamento_id": "uuid", "valor": 1250.00}'::jsonb
+);
+
+-- Listar notificações não lidas
+SELECT *
+FROM notificacoes
+WHERE usuario_id = 'usuario_id'
+    AND lida = false
+ORDER BY data_criacao DESC;
+
+-- Marcar notificação como lida
+UPDATE notificacoes
+SET lida = true,
+    data_leitura = CURRENT_TIMESTAMP
+WHERE id = 'notificacao_id';
+
+-- ================================================
+-- 13. RELATÓRIOS E ESTATÍSTICAS
+-- ================================================
+
+-- Faturamento por período
+SELECT 
+    DATE_TRUNC('month', h.data_servico) as mes,
+    COUNT(h.id) as total_servicos,
+    SUM(h.valor_total) as faturamento_total,
+    AVG(h.valor_total) as ticket_medio
+FROM historico_manutencao h
+WHERE h.oficina_id = 'oficina_id'
+    AND h.data_servico >= CURRENT_DATE - INTERVAL '12 months'
+GROUP BY DATE_TRUNC('month', h.data_servico)
+ORDER BY mes DESC;
+
+-- Serviços mais realizados
+SELECT 
+    h.tipo_servico,
+    COUNT(*) as quantidade,
+    AVG(h.valor_total) as valor_medio,
+    SUM(h.valor_total) as valor_total
+FROM historico_manutencao h
+WHERE h.oficina_id = 'oficina_id'
+    AND h.data_servico >= CURRENT_DATE - INTERVAL '6 months'
+GROUP BY h.tipo_servico
+ORDER BY quantidade DESC
+LIMIT 10;
+
+-- Clientes mais frequentes
+SELECT 
+    u.nome_completo,
+    u.telefone,
+    COUNT(DISTINCT h.id) as total_servicos,
+    SUM(h.valor_total) as valor_total,
+    MAX(h.data_servico) as ultima_visita
+FROM historico_manutencao h
+JOIN veiculos v ON h.veiculo_id = v.id
+JOIN clientes c ON v.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+WHERE h.oficina_id = 'oficina_id'
+GROUP BY c.id, u.nome_completo, u.telefone
+ORDER BY total_servicos DESC
+LIMIT 20;
+
+-- Taxa de conversão de orçamentos
+SELECT 
+    COUNT(*) FILTER (WHERE status = 'pendente') as pendentes,
+    COUNT(*) FILTER (WHERE status = 'aprovado') as aprovados,
+    COUNT(*) FILTER (WHERE status = 'recusado') as recusados,
+    COUNT(*) FILTER (WHERE status = 'concluido') as concluidos,
+    ROUND(
+        COUNT(*) FILTER (WHERE status IN ('aprovado', 'concluido'))::DECIMAL / 
+        NULLIF(COUNT(*), 0) * 100, 
+        2
+    ) as taxa_conversao_pct
+FROM orcamentos
+WHERE oficina_id = 'oficina_id'
+    AND data_criacao >= CURRENT_DATE - INTERVAL '30 days';
