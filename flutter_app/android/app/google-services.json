@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "736259305429",
+    "project_id": "promec-gti",
+    "storage_bucket": "promec-gti.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:736259305429:android:cd41d7955d62c3ccf2175c",
+        "android_client_info": {
+          "package_name": "com.example.promec_gti"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCx-HBzsZdx_lno0D_eWMoQU4KOe00-T2I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

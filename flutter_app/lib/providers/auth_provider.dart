@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart'; // kIsWeb
 
 enum TipoUsuario { cliente, oficina }
 
@@ -22,17 +25,47 @@ class AuthProvider extends ChangeNotifier {
     return true;
   }
 
-  // 🔹 Novo método para login com Google
-  Future<bool> loginComGoogle(TipoUsuario tipo) async {
-    // Simulação de login com Google
-    await Future.delayed(const Duration(seconds: 1));
+Future<bool> loginComGoogle(TipoUsuario tipo) async {
+  try {
+    UserCredential userCredential;
 
-    _email = 'usuario_google@exemplo.com'; // Pode ser mock
+    if (kIsWeb) {
+      // 🌐 WEB
+      GoogleAuthProvider googleProvider = GoogleAuthProvider();
+
+      userCredential =
+          await FirebaseAuth.instance.signInWithPopup(googleProvider);
+    } else {
+      // 📱 MOBILE
+      final GoogleSignInAccount? googleUser =
+          await GoogleSignIn().signIn();
+
+      if (googleUser == null) return false;
+
+      final googleAuth = await googleUser.authentication;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      userCredential = await FirebaseAuth.instance
+          .signInWithCredential(credential);
+    }
+
+    final user = userCredential.user;
+
+    _email = user?.email;
     _tipoUsuario = tipo;
     _isLoggedIn = true;
+
     notifyListeners();
     return true;
+  } catch (e) {
+    print('Erro login Google: $e');
+    return false;
   }
+}
 
   void logout() {
     _email = null;
