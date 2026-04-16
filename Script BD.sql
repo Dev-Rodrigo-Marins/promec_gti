@@ -1,0 +1,699 @@
+-- ================================================
+-- PROMEC-GTI - ESQUEMA DE BANCO DE DADOS
+-- Sistema de Gestão de Oficina Mecânica
+-- ================================================
+create schema promec;
+set search_path to promec;
+-- ================================================
+-- TABELA: usuarios
+-- Armazena dados de autenticação (Oficina e Cliente)
+-- ================================================
+CREATE TABLE usuarios (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    senha_hash VARCHAR(255) NOT NULL,
+    tipo_usuario VARCHAR(20) NOT NULL CHECK (tipo_usuario IN ('oficina', 'cliente')),
+    nome_completo VARCHAR(255) NOT NULL,
+    telefone VARCHAR(20),
+    ativo BOOLEAN DEFAULT true,
+    data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ultimo_acesso TIMESTAMP,
+    CONSTRAINT email_valido CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+);
+
+-- ================================================
+-- TABELA: oficinas
+-- Dados específicos das oficinas
+-- ================================================
+CREATE TABLE oficinas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usuario_id UUID REFERENCES usuarios(id) ON DELETE CASCADE,
+    razao_social VARCHAR(255) NOT NULL,
+    nome_fantasia VARCHAR(255),
+    cnpj VARCHAR(18) UNIQUE,
+    endereco TEXT,
+    cidade VARCHAR(100),
+    estado VARCHAR(2),
+    cep VARCHAR(9),
+    latitude DECIMAL(10, 8),
+    longitude DECIMAL(11, 8),
+    horario_funcionamento JSONB,
+    servicos_oferecidos TEXT[],
+    credenciada BOOLEAN DEFAULT false,
+    avaliacao_media DECIMAL(3, 2) DEFAULT 0.00,
+    total_avaliacoes INTEGER DEFAULT 0,
+    data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ================================================
+-- TABELA: clientes
+-- Dados específicos dos clientes finais
+-- ================================================
+CREATE TABLE clientes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usuario_id UUID REFERENCES usuarios(id) ON DELETE CASCADE,
+    cpf VARCHAR(14) UNIQUE,
+    data_nascimento DATE,
+    endereco TEXT,
+    cidade VARCHAR(100),
+    estado VARCHAR(2),
+    cep VARCHAR(9),
+    oficina_preferencial_id UUID REFERENCES oficinas(id),
+    data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ================================================
+-- TABELA: veiculos
+-- Cadastro de veículos dos clientes
+-- ================================================
+CREATE TABLE veiculos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente_id UUID REFERENCES clientes(id) ON DELETE CASCADE,
+    placa VARCHAR(8) UNIQUE NOT NULL,
+    marca VARCHAR(100) NOT NULL,
+    modelo VARCHAR(100) NOT NULL,
+    ano INTEGER NOT NULL,
+    cor VARCHAR(50),
+    chassi VARCHAR(17) UNIQUE,
+    renavam VARCHAR(11),
+    km_atual INTEGER DEFAULT 0,
+    km_proxima_revisao INTEGER,
+    tipo_combustivel VARCHAR(20) CHECK (tipo_combustivel IN ('gasolina', 'etanol', 'diesel', 'flex', 'gnv', 'eletrico', 'hibrido')),
+    data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ano_valido CHECK (ano >= 1900 AND ano <= EXTRACT(YEAR FROM CURRENT_DATE) + 1)
+);
+
+-- ================================================
+-- TABELA: categorias_servicos
+-- Categorias de serviços oferecidos
+-- ================================================
+CREATE TABLE categorias_servicos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nome VARCHAR(100) UNIQUE NOT NULL,
+    descricao TEXT,
+    icone VARCHAR(50),
+    cor VARCHAR(7)
+);
+
+-- ================================================
+-- TABELA: servicos
+-- Catálogo de serviços da oficina
+-- ================================================
+CREATE TABLE servicos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    oficina_id UUID REFERENCES oficinas(id) ON DELETE CASCADE,
+    categoria_id UUID REFERENCES categorias_servicos(id),
+    nome VARCHAR(255) NOT NULL,
+    descricao TEXT,
+    valor_base DECIMAL(10, 2) NOT NULL,
+    tempo_estimado_minutos INTEGER,
+    ativo BOOLEAN DEFAULT true,
+    data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT valor_positivo CHECK (valor_base >= 0)
+);
+
+-- ================================================
+-- TABELA: orcamentos
+-- Orçamentos criados pela oficina
+-- ================================================
+CREATE TABLE orcamentos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    numero_orcamento VARCHAR(20) UNIQUE NOT NULL,
+    oficina_id UUID REFERENCES oficinas(id) ON DELETE CASCADE,
+    cliente_id UUID REFERENCES clientes(id) ON DELETE CASCADE,
+    veiculo_id UUID REFERENCES veiculos(id) ON DELETE CASCADE,
+    status VARCHAR(20) DEFAULT 'pendente' CHECK (status IN ('pendente', 'enviado', 'aprovado', 'recusado', 'concluido', 'cancelado')),
+    subtotal DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    desconto DECIMAL(10, 2) DEFAULT 0.00,
+    valor_total DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    observacoes TEXT,
+    validade_dias INTEGER DEFAULT 15,
+    data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_envio TIMESTAMP,
+    data_resposta TIMESTAMP,
+    data_validade TIMESTAMP,
+    CONSTRAINT valores_positivos CHECK (subtotal >= 0 AND desconto >= 0 AND valor_total >= 0),
+    CONSTRAINT desconto_valido CHECK (desconto <= subtotal)
+);
+
+-- ================================================
+-- TABELA: itens_orcamento
+-- Itens (serviços) de cada orçamento
+-- ================================================
+CREATE TABLE itens_orcamento (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    orcamento_id UUID REFERENCES orcamentos(id) ON DELETE CASCADE,
+    servico_id UUID REFERENCES servicos(id),
+    nome_servico VARCHAR(255) NOT NULL,
+    descricao TEXT,
+    quantidade INTEGER DEFAULT 1,
+    valor_unitario DECIMAL(10, 2) NOT NULL,
+    valor_total DECIMAL(10, 2) NOT NULL,
+    tempo_estimado_minutos INTEGER,
+    CONSTRAINT quantidade_positiva CHECK (quantidade > 0),
+    CONSTRAINT valores_positivos CHECK (valor_unitario >= 0 AND valor_total >= 0)
+);
+
+-- ================================================
+-- TABELA: agendamentos
+-- Agendamentos de serviços
+-- ================================================
+CREATE TABLE agendamentos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    oficina_id UUID REFERENCES oficinas(id) ON DELETE CASCADE,
+    cliente_id UUID REFERENCES clientes(id) ON DELETE CASCADE,
+    veiculo_id UUID REFERENCES veiculos(id) ON DELETE CASCADE,
+    orcamento_id UUID REFERENCES orcamentos(id),
+    data_agendamento DATE NOT NULL,
+    horario_inicio TIME NOT NULL,
+    horario_fim TIME,
+    status VARCHAR(20) DEFAULT 'pendente' CHECK (status IN ('pendente', 'confirmado', 'em_atendimento', 'concluido', 'cancelado', 'nao_compareceu')),
+    servico_solicitado TEXT NOT NULL,
+    observacoes TEXT,
+    data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_confirmacao TIMESTAMP,
+    data_inicio_atendimento TIMESTAMP,
+    data_conclusao TIMESTAMP,
+    data_cancelamento TIMESTAMP,
+    motivo_cancelamento TEXT,
+    CONSTRAINT horario_valido CHECK (horario_fim IS NULL OR horario_fim > horario_inicio)
+);
+
+-- ================================================
+-- TABELA: historico_manutencao
+-- Registro de todas as manutenções realizadas
+-- ================================================
+CREATE TABLE historico_manutencao (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    veiculo_id UUID REFERENCES veiculos(id) ON DELETE CASCADE,
+    oficina_id UUID REFERENCES oficinas(id) ON DELETE CASCADE,
+    orcamento_id UUID REFERENCES orcamentos(id),
+    agendamento_id UUID REFERENCES agendamentos(id),
+    tipo_servico VARCHAR(100) NOT NULL,
+    descricao TEXT NOT NULL,
+    km_veiculo INTEGER,
+    valor_total DECIMAL(10, 2),
+    data_servico DATE NOT NULL,
+    data_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    observacoes TEXT,
+    proxima_manutencao_km INTEGER,
+    proxima_manutencao_data DATE
+);
+
+-- ================================================
+-- TABELA: pecas_utilizadas
+-- Peças utilizadas em cada manutenção
+-- ================================================
+CREATE TABLE pecas_utilizadas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    historico_id UUID REFERENCES historico_manutencao(id) ON DELETE CASCADE,
+    nome_peca VARCHAR(255) NOT NULL,
+    codigo_peca VARCHAR(100),
+    quantidade INTEGER NOT NULL,
+    valor_unitario DECIMAL(10, 2),
+    valor_total DECIMAL(10, 2),
+    fabricante VARCHAR(100),
+    CONSTRAINT quantidade_positiva CHECK (quantidade > 0)
+);
+
+-- ================================================
+-- TABELA: alertas_manutencao
+-- Alertas inteligentes de manutenção
+-- ================================================
+CREATE TABLE alertas_manutencao (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    veiculo_id UUID REFERENCES veiculos(id) ON DELETE CASCADE,
+    tipo_alerta VARCHAR(50) NOT NULL CHECK (tipo_alerta IN ('km', 'data', 'vencimento', 'outro')),
+    titulo VARCHAR(255) NOT NULL,
+    descricao TEXT,
+    km_alerta INTEGER,
+    data_alerta DATE,
+    prioridade VARCHAR(20) DEFAULT 'media' CHECK (prioridade IN ('baixa', 'media', 'alta', 'urgente')),
+    status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'visualizado', 'resolvido', 'ignorado')),
+    data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_visualizacao TIMESTAMP,
+    data_resolucao TIMESTAMP
+);
+
+-- ================================================
+-- TABELA: solicitacoes_guincho
+-- Solicitações de guincho dos clientes
+-- ================================================
+CREATE TABLE solicitacoes_guincho (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente_id UUID REFERENCES clientes(id) ON DELETE CASCADE,
+    veiculo_id UUID REFERENCES veiculos(id) ON DELETE CASCADE,
+    oficina_destino_id UUID REFERENCES oficinas(id),
+    status VARCHAR(20) DEFAULT 'pendente' CHECK (status IN ('pendente', 'em_andamento', 'concluido', 'cancelado')),
+    localizacao_origem TEXT NOT NULL,
+    latitude_origem DECIMAL(10, 8),
+    longitude_origem DECIMAL(11, 8),
+    localizacao_destino TEXT,
+    latitude_destino DECIMAL(10, 8),
+    longitude_destino DECIMAL(11, 8),
+    descricao_problema TEXT NOT NULL,
+    observacoes TEXT,
+    valor_estimado DECIMAL(10, 2),
+    data_solicitacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_atendimento TIMESTAMP,
+    data_conclusao TIMESTAMP,
+    data_cancelamento TIMESTAMP,
+    motivo_cancelamento TEXT
+);
+
+-- ================================================
+-- TABELA: avaliacoes
+-- Avaliações dos clientes sobre oficinas
+-- ================================================
+CREATE TABLE avaliacoes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    oficina_id UUID REFERENCES oficinas(id) ON DELETE CASCADE,
+    cliente_id UUID REFERENCES clientes(id) ON DELETE CASCADE,
+    agendamento_id UUID REFERENCES agendamentos(id),
+    nota INTEGER NOT NULL CHECK (nota >= 1 AND nota <= 5),
+    comentario TEXT,
+    data_avaliacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(oficina_id, agendamento_id)
+);
+
+-- ================================================
+-- TABELA: notificacoes
+-- Sistema de notificações
+-- ================================================
+CREATE TABLE notificacoes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    usuario_id UUID REFERENCES usuarios(id) ON DELETE CASCADE,
+    tipo VARCHAR(50) NOT NULL,
+    titulo VARCHAR(255) NOT NULL,
+    mensagem TEXT NOT NULL,
+    dados_extras JSONB,
+    lida BOOLEAN DEFAULT false,
+    data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_leitura TIMESTAMP
+);
+
+-- ================================================
+-- TABELA: atualizacoes_km
+-- Registro de atualizações de quilometragem
+-- ================================================
+CREATE TABLE atualizacoes_km (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    veiculo_id UUID REFERENCES veiculos(id) ON DELETE CASCADE,
+    km_anterior INTEGER NOT NULL,
+    km_novo INTEGER NOT NULL,
+    diferenca INTEGER NOT NULL,
+    data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT km_valido CHECK (km_novo >= km_anterior)
+);
+
+-- ================================================
+-- ÍNDICES PARA OTIMIZAÇÃO DE CONSULTAS
+-- ================================================
+
+-- Índices para usuarios
+CREATE INDEX idx_usuarios_email ON usuarios(email);
+CREATE INDEX idx_usuarios_tipo ON usuarios(tipo_usuario);
+
+-- Índices para veículos
+CREATE INDEX idx_veiculos_cliente ON veiculos(cliente_id);
+CREATE INDEX idx_veiculos_placa ON veiculos(placa);
+
+-- Índices para orçamentos
+CREATE INDEX idx_orcamentos_cliente ON orcamentos(cliente_id);
+CREATE INDEX idx_orcamentos_oficina ON orcamentos(oficina_id);
+CREATE INDEX idx_orcamentos_status ON orcamentos(status);
+CREATE INDEX idx_orcamentos_data ON orcamentos(data_criacao);
+
+-- Índices para agendamentos
+CREATE INDEX idx_agendamentos_oficina ON agendamentos(oficina_id);
+CREATE INDEX idx_agendamentos_cliente ON agendamentos(cliente_id);
+CREATE INDEX idx_agendamentos_data ON agendamentos(data_agendamento);
+CREATE INDEX idx_agendamentos_status ON agendamentos(status);
+
+-- Índices para histórico
+CREATE INDEX idx_historico_veiculo ON historico_manutencao(veiculo_id);
+CREATE INDEX idx_historico_oficina ON historico_manutencao(oficina_id);
+CREATE INDEX idx_historico_data ON historico_manutencao(data_servico);
+
+-- Índices para alertas
+CREATE INDEX idx_alertas_veiculo ON alertas_manutencao(veiculo_id);
+CREATE INDEX idx_alertas_status ON alertas_manutencao(status);
+
+-- Índices para notificações
+CREATE INDEX idx_notificacoes_usuario ON notificacoes(usuario_id);
+CREATE INDEX idx_notificacoes_lida ON notificacoes(lida);
+
+-- ================================================
+-- TRIGGERS
+-- ================================================
+
+-- Trigger para atualizar data_atualizacao em veículos
+CREATE OR REPLACE FUNCTION atualizar_data_modificacao()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.data_atualizacao = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_veiculo_atualizacao
+    BEFORE UPDATE ON veiculos
+    FOR EACH ROW
+    EXECUTE FUNCTION atualizar_data_modificacao();
+
+CREATE TRIGGER trigger_servico_atualizacao
+    BEFORE UPDATE ON servicos
+    FOR EACH ROW
+    EXECUTE FUNCTION atualizar_data_modificacao();
+
+-- Trigger para calcular valor total do orçamento
+CREATE OR REPLACE FUNCTION calcular_total_orcamento()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE orcamentos
+    SET valor_total = subtotal - desconto
+    WHERE id = NEW.orcamento_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_calcular_orcamento
+    AFTER INSERT OR UPDATE OR DELETE ON itens_orcamento
+    FOR EACH ROW
+    EXECUTE FUNCTION calcular_total_orcamento();
+
+-- Trigger para atualizar avaliação média da oficina
+CREATE OR REPLACE FUNCTION atualizar_avaliacao_oficina()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE oficinas
+    SET 
+        avaliacao_media = (
+            SELECT AVG(nota)::DECIMAL(3,2)
+            FROM avaliacoes
+            WHERE oficina_id = NEW.oficina_id
+        ),
+        total_avaliacoes = (
+            SELECT COUNT(*)
+            FROM avaliacoes
+            WHERE oficina_id = NEW.oficina_id
+        )
+    WHERE id = NEW.oficina_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_atualizar_avaliacao
+    AFTER INSERT ON avaliacoes
+    FOR EACH ROW
+    EXECUTE FUNCTION atualizar_avaliacao_oficina();
+
+-- Trigger para registrar atualização de KM
+CREATE OR REPLACE FUNCTION registrar_atualizacao_km()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.km_atual != OLD.km_atual THEN
+        INSERT INTO atualizacoes_km (veiculo_id, km_anterior, km_novo, diferenca)
+        VALUES (NEW.id, OLD.km_atual, NEW.km_atual, NEW.km_atual - OLD.km_atual);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_registrar_km
+    AFTER UPDATE ON veiculos
+    FOR EACH ROW
+    WHEN (OLD.km_atual IS DISTINCT FROM NEW.km_atual)
+    EXECUTE FUNCTION registrar_atualizacao_km();
+
+-- ================================================
+-- INSERÇÃO DE DADOS INICIAIS
+-- ================================================
+
+-- Categorias de serviços padrão
+INSERT INTO categorias_servicos (nome, descricao, icone, cor) VALUES
+    ('Manutenção', 'Serviços de manutenção preventiva e corretiva', 'build', '#3B82F6'),
+    ('Freios', 'Serviços relacionados ao sistema de freios', 'disc_full', '#EF4444'),
+    ('Suspensão', 'Serviços de suspensão e amortecedores', 'support', '#F59E0B'),
+    ('Motor', 'Serviços relacionados ao motor', 'settings', '#10B981'),
+    ('Elétrica', 'Serviços elétricos e eletrônicos', 'electrical_services', '#8B5CF6'),
+    ('Ar Condicionado', 'Manutenção e recarga de ar condicionado', 'ac_unit', '#06B6D4'),
+    ('Pneus', 'Serviços de alinhamento, balanceamento e troca', 'trip_origin', '#6366F1'),
+    ('Outro', 'Outros serviços não categorizados', 'more_horiz', '#6B7280');
+
+-- ================================================
+-- VIEWS ÚTEIS
+-- ================================================
+
+-- View: Resumo de orçamentos por oficina
+CREATE VIEW vw_resumo_orcamentos_oficina AS
+SELECT 
+    o.id as oficina_id,
+    o.nome_fantasia,
+    COUNT(orc.id) as total_orcamentos,
+    COUNT(CASE WHEN orc.status = 'pendente' THEN 1 END) as pendentes,
+    COUNT(CASE WHEN orc.status = 'aprovado' THEN 1 END) as aprovados,
+    COUNT(CASE WHEN orc.status = 'concluido' THEN 1 END) as concluidos,
+    SUM(CASE WHEN orc.status = 'aprovado' OR orc.status = 'concluido' THEN orc.valor_total ELSE 0 END) as valor_total_aprovado
+FROM oficinas o
+LEFT JOIN orcamentos orc ON o.id = orc.oficina_id
+GROUP BY o.id, o.nome_fantasia;
+
+-- View: Próximas manutenções dos veículos
+CREATE VIEW vw_proximas_manutencoes AS
+SELECT 
+    v.id as veiculo_id,
+    v.placa,
+    v.marca,
+    v.modelo,
+    c.id as cliente_id,
+    u.nome_completo as cliente_nome,
+    v.km_atual,
+    v.km_proxima_revisao,
+    (v.km_proxima_revisao - v.km_atual) as km_restante,
+    h.proxima_manutencao_data
+FROM veiculos v
+JOIN clientes c ON v.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+LEFT JOIN LATERAL (
+    SELECT proxima_manutencao_data
+    FROM historico_manutencao
+    WHERE veiculo_id = v.id
+    ORDER BY data_servico DESC
+    LIMIT 1
+) h ON true
+WHERE v.km_proxima_revisao IS NOT NULL
+    AND v.km_proxima_revisao > v.km_atual;
+
+-- View: Agendamentos do dia
+CREATE VIEW vw_agendamentos_dia AS
+SELECT 
+    a.id,
+    a.data_agendamento,
+    a.horario_inicio,
+    a.status,
+    v.placa,
+    v.marca,
+    v.modelo,
+    u.nome_completo as cliente_nome,
+    u.telefone as cliente_telefone,
+    a.servico_solicitado,
+    o.nome_fantasia as oficina_nome
+FROM agendamentos a
+JOIN veiculos v ON a.veiculo_id = v.id
+JOIN clientes c ON a.cliente_id = c.id
+JOIN usuarios u ON c.usuario_id = u.id
+JOIN oficinas o ON a.oficina_id = o.id
+WHERE a.data_agendamento = CURRENT_DATE
+ORDER BY a.horario_inicio;
+
+-- ================================================
+-- FUNÇÕES ÚTEIS
+-- ================================================
+
+-- Função: Buscar veículos por placa, cliente ou modelo
+CREATE OR REPLACE FUNCTION buscar_veiculos(
+    p_termo_busca TEXT,
+    p_tipo_busca VARCHAR(20) DEFAULT 'placa'
+)
+RETURNS TABLE (
+    veiculo_id UUID,
+    placa VARCHAR,
+    marca VARCHAR,
+    modelo VARCHAR,
+    ano INTEGER,
+    cliente_nome VARCHAR,
+    cliente_telefone VARCHAR
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        v.id,
+        v.placa,
+        v.marca,
+        v.modelo,
+        v.ano,
+        u.nome_completo,
+        u.telefone
+    FROM veiculos v
+    JOIN clientes c ON v.cliente_id = c.id
+    JOIN usuarios u ON c.usuario_id = u.id
+    WHERE 
+        CASE p_tipo_busca
+            WHEN 'placa' THEN v.placa ILIKE '%' || p_termo_busca || '%'
+            WHEN 'cliente' THEN u.nome_completo ILIKE '%' || p_termo_busca || '%'
+            WHEN 'modelo' THEN v.modelo ILIKE '%' || p_termo_busca || '%'
+            ELSE false
+        END;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Função: Gerar número de orçamento sequencial
+CREATE OR REPLACE FUNCTION gerar_numero_orcamento()
+RETURNS VARCHAR AS $$
+DECLARE
+    proximo_numero INTEGER;
+    ano_atual VARCHAR(4);
+BEGIN
+    ano_atual := EXTRACT(YEAR FROM CURRENT_DATE)::VARCHAR;
+    
+    SELECT COALESCE(MAX(CAST(SUBSTRING(numero_orcamento FROM 9) AS INTEGER)), 0) + 1
+    INTO proximo_numero
+    FROM orcamentos
+    WHERE numero_orcamento LIKE 'ORC-' || ano_atual || '%';
+    
+    RETURN 'ORC-' || ano_atual || '-' || LPAD(proximo_numero::VARCHAR, 4, '0');
+END;
+$$ LANGUAGE plpgsql;
+
+-- ================================================
+-- COMENTÁRIOS NAS TABELAS
+-- ================================================
+
+COMMENT ON TABLE usuarios IS 'Tabela principal de usuários do sistema (oficinas e clientes)';
+COMMENT ON TABLE oficinas IS 'Dados específicos das oficinas mecânicas';
+COMMENT ON TABLE clientes IS 'Dados específicos dos clientes finais';
+COMMENT ON TABLE veiculos IS 'Cadastro de veículos dos clientes';
+COMMENT ON TABLE servicos IS 'Catálogo de serviços oferecidos pelas oficinas';
+COMMENT ON TABLE orcamentos IS 'Orçamentos criados pelas oficinas para os clientes';
+COMMENT ON TABLE agendamentos IS 'Agendamentos de serviços na oficina';
+COMMENT ON TABLE historico_manutencao IS 'Histórico completo de manutenções realizadas';
+COMMENT ON TABLE alertas_manutencao IS 'Alertas inteligentes de manutenção baseados em KM e data';
+COMMENT ON TABLE solicitacoes_guincho IS 'Solicitações de guincho dos clientes';
+
+-- ================================================
+-- FIM DO ESQUEMA
+-- ================================================
+
+-- Função única para atualizar data_atualizacao
+CREATE OR REPLACE FUNCTION atualizar_data_modificacao()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.data_atualizacao = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Aplicar trigger em todas as tabelas que precisam
+DO $$
+BEGIN
+    -- Orcamentos
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_orcamento_atualizacao') THEN
+        ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_orcamento_atualizacao
+            BEFORE UPDATE ON orcamentos
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+    -- Itens Orcamento
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_itens_orcamento_atualizacao') THEN
+        ALTER TABLE itens_orcamento ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_itens_orcamento_atualizacao
+            BEFORE UPDATE ON itens_orcamento
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+    -- Agendamentos
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_agendamento_atualizacao') THEN
+        ALTER TABLE agendamentos ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_agendamento_atualizacao
+            BEFORE UPDATE ON agendamentos
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+    -- Historico Manutencao
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_historico_atualizacao') THEN
+        ALTER TABLE historico_manutencao ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_historico_atualizacao
+            BEFORE UPDATE ON historico_manutencao
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+    -- Pecas Utilizadas
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_pecas_atualizacao') THEN
+        ALTER TABLE pecas_utilizadas ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_pecas_atualizacao
+            BEFORE UPDATE ON pecas_utilizadas
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+    -- Alertas Manutencao
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_alertas_atualizacao') THEN
+        ALTER TABLE alertas_manutencao ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_alertas_atualizacao
+            BEFORE UPDATE ON alertas_manutencao
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+    -- Solicitacoes Guincho
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_guincho_atualizacao') THEN
+        ALTER TABLE solicitacoes_guincho ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_guincho_atualizacao
+            BEFORE UPDATE ON solicitacoes_guincho
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+    -- Avaliacoes
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_avaliacoes_atualizacao') THEN
+        ALTER TABLE avaliacoes ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_avaliacoes_atualizacao
+            BEFORE UPDATE ON avaliacoes
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+    -- Notificacoes
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_notificacoes_atualizacao') THEN
+        ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        CREATE TRIGGER trigger_notificacoes_atualizacao
+            BEFORE UPDATE ON notificacoes
+            FOR EACH ROW
+            EXECUTE FUNCTION atualizar_data_modificacao();
+    END IF;
+
+END;
+$$;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
