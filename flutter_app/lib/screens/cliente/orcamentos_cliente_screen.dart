@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
 import '../../models/orcamento.dart';
-
 
 class OrcamentosClienteScreen extends StatefulWidget {
   const OrcamentosClienteScreen({super.key});
@@ -15,51 +14,35 @@ class OrcamentosClienteScreen extends StatefulWidget {
 
 class _OrcamentosClienteScreenState
     extends State<OrcamentosClienteScreen> {
-  String _filtroSelecionado = 'todos';
-
   List<Orcamento> _orcamentos = [];
   bool _loading = true;
 
-  final String clienteId =
-      '7b2958ec-852a-47e7-8975-e1cfd33bd9c9'; // ajuste dinâmico depois
+  final String clienteId = '7b2958ec-852a-47e7-8975-e1cfd33bd9c9';
 
   @override
   void initState() {
     super.initState();
-    _carregarOrcamentos();
+    carregarOrcamentos();
   }
 
-  Future<void> _carregarOrcamentos() async {
-    final url = Uri.parse(
-        'http://204.216.132.130/promec/api/consulta_orcamentos.php?cliente_id=$clienteId');
-
+  Future<void> carregarOrcamentos() async {
     try {
-      final response = await http.get(url);
+      final response = await http.get(
+        Uri.parse(
+            'http://204.216.132.130/promec/api/consulta_orcamentos.php?cliente_id=$clienteId'),
+      );
 
-      if (response.statusCode == 200) {
-        final List data = jsonDecode(response.body);
+      final data = jsonDecode(response.body);
 
-        setState(() {
-          _orcamentos =
-              data.map((json) => Orcamento.fromJson(json)).toList();
-          _loading = false;
-        });
-      } else {
-        throw Exception('Erro ao carregar orçamentos');
-      }
-    } catch (e) {
       setState(() {
+        _orcamentos =
+            data.map<Orcamento>((e) => Orcamento.fromJson(e)).toList();
         _loading = false;
       });
-      debugPrint(e.toString());
+    } catch (e) {
+      print(e);
+      setState(() => _loading = false);
     }
-  }
-
-  List<Orcamento> get _orcamentosFiltrados {
-    if (_filtroSelecionado == 'todos') return _orcamentos;
-    return _orcamentos
-        .where((o) => o.status == _filtroSelecionado)
-        .toList();
   }
 
   @override
@@ -68,79 +51,139 @@ class _OrcamentosClienteScreenState
       return const Center(child: CircularProgressIndicator());
     }
 
-    return Column(
-      children: [
-        _buildFiltros(),
-        Expanded(
-          child: _orcamentosFiltrados.isEmpty
-              ? _buildEmptyState()
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _orcamentosFiltrados.length,
-                  itemBuilder: (context, index) {
-                    return _buildOrcamentoCard(
-                        _orcamentosFiltrados[index]);
-                  },
-                ),
-        ),
-      ],
-    );
-  }
+    if (_orcamentos.isEmpty) {
+      return const Center(child: Text('Nenhum orçamento encontrado'));
+    }
 
-  Widget _buildFiltros() {
-    return Container(
+    return ListView.builder(
       padding: const EdgeInsets.all(16),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _buildFiltroChip('Todos', 'todos'),
-            const SizedBox(width: 8),
-            _buildFiltroChip('Pendentes', 'pendente'),
-            const SizedBox(width: 8),
-            _buildFiltroChip('Aprovados', 'aprovado'),
-            const SizedBox(width: 8),
-            _buildFiltroChip('Concluídos', 'concluido'),
-          ],
-        ),
-      ),
-    );
-  }
+      itemCount: _orcamentos.length,
+      itemBuilder: (context, index) {
+        final orc = _orcamentos[index];
 
-  Widget _buildFiltroChip(String label, String valor) {
-    final isSelected = _filtroSelecionado == valor;
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                /// HEADER
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      orc.numero,
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    _statusBadge(orc.status),
+                  ],
+                ),
 
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (_) {
-        setState(() {
-          _filtroSelecionado = valor;
-        });
+                const SizedBox(height: 10),
+
+                /// VEÍCULO + PLACA
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.directions_car, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            orc.veiculo,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Placa: ${orc.placa ?? "Não informada"}',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                /// DATA
+                Row(
+                  children: [
+                    const Icon(Icons.calendar_today, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      DateFormat('dd/MM/yyyy').format(orc.data),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 10),
+
+                /// SERVIÇOS COM VALOR
+                if (orc.servicos.isNotEmpty)
+                  Column(
+                    children: orc.servicos.map((s) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          mainAxisAlignment:
+                              MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text('• ${s.nome}'),
+                            ),
+                            Text(
+                              NumberFormat.currency(
+                                locale: 'pt_BR',
+                                symbol: 'R\$',
+                              ).format(s.valor),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+
+                const SizedBox(height: 12),
+
+                /// TOTAL
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Total'),
+                    Text(
+                      NumberFormat.currency(
+                        locale: 'pt_BR',
+                        symbol: 'R\$',
+                      ).format(orc.valor),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
       },
     );
   }
 
-  Widget _buildOrcamentoCard(Orcamento orcamento) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
-        title: Text(orcamento.numero),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(DateFormat('dd/MM/yyyy').format(orcamento.data)),
-            const SizedBox(height: 4),
-            Text('R\$ ${orcamento.valor.toStringAsFixed(2)}'),
-          ],
-        ),
-        trailing: _buildStatusBadge(orcamento.status),
-        onTap: () => _mostrarDetalhesOrcamento(orcamento),
-      ),
-    );
-  }
-
-  Widget _buildStatusBadge(String status) {
+  Widget _statusBadge(String status) {
     Color cor;
 
     switch (status) {
@@ -160,42 +203,12 @@ class _OrcamentosClienteScreenState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: cor.withOpacity(0.2),
+        color: cor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         status,
-        style: TextStyle(color: cor),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return const Center(
-      child: Text('Nenhum orçamento encontrado'),
-    );
-  }
-
-  void _mostrarDetalhesOrcamento(Orcamento orcamento) {
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Text(
-              orcamento.numero,
-              style: const TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            ...orcamento.servicos.map((s) => ListTile(
-                  title: Text(s.nome),
-                  trailing:
-                      Text('R\$ ${s.total.toStringAsFixed(2)}'),
-                )),
-          ],
-        ),
+        style: TextStyle(color: cor, fontSize: 12),
       ),
     );
   }
