@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import '../../providers/veiculo_provider.dart';
 import '../../models/veiculo.dart';
+import '../../routes/loading_route_builder.dart';
 
 class MeusVeiculosScreen extends StatefulWidget {
   const MeusVeiculosScreen({super.key});

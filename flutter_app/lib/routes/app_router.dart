@@ -17,6 +17,7 @@ import '../screens/oficina/montar_orcamento_screen.dart';
 import '../screens/oficina/historico_veiculo_screen.dart';
 import '../widgets/layouts/cliente_layout.dart';
 import '../widgets/layouts/oficina_layout.dart';
+import 'loading_route_builder.dart';
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/login',
@@ -25,75 +26,73 @@ final GoRouter appRouter = GoRouter(
       path: '/login',
       builder: (context, state) => const LoginScreen(),
     ),
-    
     // Rotas do Cliente
     ShellRoute(
       builder: (context, state, child) => ClienteLayout(child: child),
       routes: [
         GoRoute(
           path: '/cliente',
-          builder: (context, state) => const HomeClienteScreen(),
+            builder: (context, state) => withLoading((ctx) => const HomeClienteScreen()),
         ),
         GoRoute(
           path: '/cliente/veiculos',
-          builder: (context, state) => const MeusVeiculosScreen(),
+          builder: (context, state) => withLoading((ctx) => const MeusVeiculosScreen()),
         ),
         GoRoute(
           path: '/cliente/orcamentos',
-          builder: (context, state) => const OrcamentosClienteScreen(),
+          builder: (context, state) => withLoading((ctx) => const OrcamentosClienteScreen()),
         ),
         GoRoute(
           path: '/cliente/historico',
-          builder: (context, state) => const HistoricoClienteScreen(),
+          builder: (context, state) => withLoading((ctx) => const HistoricoClienteScreen()),
         ),
         GoRoute(
           path: '/cliente/guincho',
-          builder: (context, state) => const SolicitarGuinchoScreen(),
+          builder: (context, state) => withLoading((ctx) => const SolicitarGuinchoScreen()),
         ),
         GoRoute(
           path: '/cliente/oficinas',
-          builder: (context, state) => const OficinasCredenciadasScreen(),
+          builder: (context, state) => withLoading((ctx) => const OficinasCredenciadasScreen()),
         ),
       ],
     ),
-    
     // Rotas da Oficina
     ShellRoute(
       builder: (context, state, child) => OficinaLayout(child: child),
       routes: [
         GoRoute(
           path: '/oficina',
-          builder: (context, state) => const HomeOficinaScreen(),
+          builder: (context, state) => withLoading((ctx) => const HomeOficinaScreen()),
         ),
         GoRoute(
           path: '/oficina/cadastrar-veiculo',
-          builder: (context, state) => const CadastrarVeiculoScreen(),
+          builder: (context, state) => withLoading((ctx) => const CadastrarVeiculoScreen()),
         ),
         GoRoute(
           path: '/oficina/procurar-veiculo',
-          builder: (context, state) => const ProcurarVeiculoScreen(),
+          builder: (context, state) => withLoading((ctx) => const ProcurarVeiculoScreen()),
         ),
         GoRoute(
           path: '/oficina/agenda',
-          builder: (context, state) => const AgendaScreen(),
+          builder: (context, state) => withLoading((ctx) => const AgendaScreen()),
         ),
         GoRoute(
           path: '/oficina/orcamentos',
-          builder: (context, state) => const OrcamentosOficinaScreen(),
+          builder: (context, state) => withLoading((ctx) => const OrcamentosOficinaScreen()),
         ),
         GoRoute(
           path: '/oficina/cadastrar-servicos',
-          builder: (context, state) => const CadastrarServicosScreen(),
+          builder: (context, state) => withLoading((ctx) => const CadastrarServicosScreen()),
         ),
         GoRoute(
           path: '/oficina/montar-orcamento',
-          builder: (context, state) => const MontarOrcamentoScreen(),
+          builder: (context, state) => withLoading((ctx) => const MontarOrcamentoScreen()),
         ),
         GoRoute(
           path: '/oficina/historico-veiculo/:id',
           builder: (context, state) {
             final id = state.pathParameters['id']!;
-            return HistoricoVeiculoScreen(veiculoId: id);
+            return withLoading((ctx) => HistoricoVeiculoScreen(veiculoId: id));
           },
         ),
       ],
